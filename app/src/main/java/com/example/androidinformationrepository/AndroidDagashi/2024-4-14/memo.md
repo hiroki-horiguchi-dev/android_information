@@ -147,6 +147,8 @@ https://medium.com/@gregkorossy/animating-lazylist-items-in-jetpack-compose-6b40
 
 追加とRemove のアニメーションが抜けてたよと、これを追加したよ。
 
+[画面収録 2024-04-22 17.27.44.mov](..%2F..%2F..%2F..%2F..%2F..%2F..%2F..%2F..%2F..%2FDesktop%2F%E7%94%BB%E9%9D%A2%E5%8F%8E%E9%8C%B2%202024-04-22%2017.27.44.mov)
+
 ```text
 バージョン1.7.0-alpha06のCompose Foundationライブラリから、アイテムの配置（通常はほとんど並び替えを意味する）だけでなく、
 出現や消滅のアニメーションもできるようになりました。
