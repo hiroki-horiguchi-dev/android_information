@@ -13,7 +13,7 @@ you'd think it would be a quiet #JetpackReleaseNotes - nope!
 Fragment 1.7.0+Transition 1.5.0 (w/ Predictive Back), Core Performance 1.0.0, plus Room 2.7.0-alpha01 (KMP!) and Navigation 2.8.0-alpha08 (Safe Args w/ Compose)
 ```
 
-後でも触れるけど、Room に ksp 導入された話だね
+後でも触れるけど、Room に KMP 導入された話だね、ん、逆か？
 
 # Compose Compiler が Kotlin のレポジトリに移動
 ```text
