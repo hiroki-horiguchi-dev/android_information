@@ -32,6 +32,7 @@ open class Pointer(private val stg: String, private val name: String) {
 
 ### Operator overloading
 - この章ちょっとよくわからんな
+- オーバーロードなので、過加重とか過積載とかって意味、過積載な function だよって明示してると取れるんだけど、うーん、何これ・・？
 
 ### Extensions
 - 継承、リフレクションを用いずにクラスやインターフェースを拡張できる機能を持っている
