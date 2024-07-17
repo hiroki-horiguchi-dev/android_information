@@ -493,4 +493,187 @@ class OrderingTest {
 ```
 
 ## JMM: Happens-before relation
-次ここから
+```kotlin
+class OrderingTest {
+   var x = 0
+   @Volatile var y = 0
+   fun test() {
+       thread {
+           x = 1
+           y = 1
+       }
+       thread {
+           val a = y
+           val b = x
+           println("$a, $b")
+       }
+   }
+}
+```
+![img_16.png](img_16.png)
+
+- このグラフは、左側のコードの実行可能性を表している
+- 他の実行も可能であり（例えば、Rx1の代わりにRx0）、別のグラフで表される
+- WxV 「は 」VをXに書き込む「、」RxV 「は 」Vをxから読み出す "という意味
+- 書き込みや読み出しに添えられた上付き文字のVは、アクセスされる変数が揮発性であることを意味する
+- プログラム・オーダーとは、コード内のステートメントの順序のことで、あるスレッドの実行に対応する
+- Reads fromは、read操作が何らかのwrite操作の結果を見るときに起こる関係
+- ![img_17.png](img_17.png)
+- Synchronizes withは、2つの操作がスレッドに同期を強制するときに現れる関係を示す
+- ![img_18.png](img_18.png)
+- Happens beforeは、プログラム順序の推移的閉包であり、関係と同期する
+- つまり、異なるスレッド間の同期や、特定のスレッド内のプログラムを一緒に実行することは、ある実行を不可能にする
+- これらの制限により、データ・レース・フリーのプログラムを書くことができる
+- このスライドに描かれている実行（前回のシナリオに戻る）では、スレッド2がyから1を読み出している
+- これは、スレッド1でyに1が書き込まれた（yへの1の書き込みはこれだけである）後にこの命令が実行されたことを意味し、スレッド1がxに1を書き込んだ後に起こるはずである
+- ![img_19.png](img_19.png)
+- Wx1とRx1のhappens beforeの関係は、スレッド2が揮発性のyから1を読む場合、スレッド1と同期し、その前のすべての作業を見なければならないことを意味する
+
+## JMM: Synchronizing actions
+- 揮発性フィールドの読み取りと書き込み 
+- ロックとアンロック 
+- スレッドの実行と開始、終了と結合
+- これらは、リレーションとの同期を提供するいくつかのアクション
+
+## JMM: DRF-SC again
+- 次の2つのイベントがデータレースを形成
+- 両方とも同じフィールドへのメモリーアクセスである
+- 両方ともプレーン（非アトミック）アクセスである
+- 少なくとも一方が書き込みイベントである
+- これらのイベントは、以前に起こった出来事によって関連していない
+- データ・レース・フリーのプログラムはシーケンシャルに一貫したセマンティクスを持つ
+- あるプログラムがデータ・レース・フリーであるのは、このプログラムのあらゆる可能な実行に対して、2つのイベントがデータ・レースを形成しない場合である
+
+
+## JMM: Atomics
+- しかし、共有変数のアトミック演算子についてはどうだろうか？
+```kotlin
+class Counter {
+   private val c = AtomicInteger()
+
+   fun increment() {
+       c.incrementAndGet()
+   }
+
+   fun decrement() {
+       c.decrementAndGet()
+   }
+
+   fun value(): Int {
+       return c.get()
+   }
+}
+```
+- Volatileアノテーションは、Counterクラスの例のバグを修正しない
+- 2つの異なるスレッドで同じ値を読み、それぞれのスレッドで別々にインクリメントし、新しい値をフィールドに書き込む
+- カウンターは、普通のIntegerの代わりにAtomicIntegerを使うことで修正できる
+- アトミックは、あたかも1つのCPU命令で何らかの演算が実行されているかのように実行を強制するため、自明でない演算を自明であるかのように見せる
+
+- java.util.concurrent.atomic パッケージのアトミッククラス↓
+- AtomicInteger
+- AtomicLong
+- AtomicBoolean
+- AtomicReference
+
+- 配列対応↓
+- AtomicIntegerArray
+- AtomicLongArray
+- AtomicReferenceArray
+
+- `get()` - 値を揮発性セマンティクスで読み込む
+- `set(v)` - volatileなセマンティクスで値を書き込む
+- `getAndSet(v)` - 原子的に値を交換する
+- `compareAndSet(e, v)` - 原子変数の値を期待値 e と原子的に比較し、等しい場合は原子変数の内容を期待値 v で置き換える
+- `compareAndExchange(e, v)` - 値と期待値 e をアトミックに比較し、それらが等しい場合は、期待値 v で置換
+- `getAndIncrement()``addAndGet(d)` など - 数値アトミック（AtomicInteger、AtomicLong）のアトミック演算を実行
+- `compareAndSet` は、ブロック・ロックの代わりにロック・フリーのデータ構造で広く使われている。ロックフリーのスタックの非常に単純な例は次のようになる
+```kotlin
+class Node(
+    var next: Node,
+    val data: Int
+)
+
+var head: AtomicReference<Node> = AtomicReference(Node(...)) // simple example => no idea what should be in the first node’s `next`
+
+fun push(newValue: Int) {
+  val newNode = Node(head.get(), newValue)
+  do {
+    newNode.next = head.get()
+  } while (!head.compareAndSet(newNode.next, newNode))
+}
+
+fun pop(): Int { // this will fail if there is only one node left, the head itself, but this is a simple example
+  var current = head.get()
+  while(!head.compareAndSet(current, current.next)) {
+    current = head.get()
+  }
+  return current.data
+}
+```
+- Atomic Class
+- `getXXX()`
+- `setXXX(v)`
+- `weakCompareAndSetXXX(e, v)`
+- `compareAndExchangeXXX(e, v)`
+- これらの場合、XXXはアクセスモードである： Acquire、Release、Opaque、Plain
+- Javaのアクセス・モードについては、こちらを参照
+  - https://gee.cs.oswego.edu/dl/html/j9mm.html
+
+
+## JMM: Atomics Problem
+```kotlin
+class Node<T>(val value: T) {
+   val next = AtomicReference<Node<T>>()
+}
+```
+- アトミックの主な問題は、本格的なオブジェクト
+- AtomicIntegerは4バイトや8バイトの整数ではなく、ヘッダと多くの追加データを持つオブジェクトであり、アプリケーションのパフォーマンスに悪影響を及ぼす可能性がある
+
+使わねえだろこの辺は絶対に、と思ってしまうよ、、、、いつ役に立つんだよおこれえ
+
+## JMM: Atomic field updaters
+- AtomicXXXFieldUpdater クラスを使用して、揮発性フィールドを直接変更
+```kotlin
+class Counter {
+   @Volatile private var c = 0
+   companion object {
+       private val updater = AtomicIntegerFieldUpdater.newUpdater(Counter::class.java, "c")
+   }
+   fun increment() {
+       updater.incrementAndGet(this)
+   }
+   fun decrement() {
+       updater.decrementAndGet(this)
+   }
+   fun value(): Int {
+       return updater.get(this)
+   }
+}
+```
+- JDK9 からは、同様の目的を果たす VarHandle クラスもある
+- 追加の不要なデータがたくさんあるという問題を解決するために、目的のクラス・フィールドを操作するために別のアップデータ・クラスを使用することができる
+
+## Kotlin: AtomicFU
+- AtomicFUライブラリは、Kotlinでアトミック演算を使うための推奨方法
+- https://github.com/Kotlin/kotlinx-atomicfu
+
+```kotlin
+class Counter {
+   private val c = atomic(0)
+   fun increment() {
+       c += 1
+   }
+   fun decrement() {
+       c -= 1
+   }
+   fun value(): Int {
+       return c.value
+   }
+}
+```
+- Javaのatomicに似たAPIでAtomicXXXクラスを提供
+- コンパイラのプラグインにより、atomicXXXFieldUpdater や VarHandle に置き換わる
+- また、c.update { it + 1 }のような便利な拡張関数も提供
+- AtomicFUはアトミックを扱う推奨の方法を提供するライブラリ
+
+完了！結構しんどい回ではあったな。。
