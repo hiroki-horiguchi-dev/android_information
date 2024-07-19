@@ -1089,4 +1089,460 @@ job.cancelAndJoin()
 - これは、リソースを解放するためのfinallyブロックなどで使われることがある
 
 ## Channels
+- ⚠️ 初めて見た概念なので最初からよくわかってないから復習必須
+
 ## Communicating sequential processes
+- ChannelはBlockingQueueのようなものだが、ブロック呼び出しの代わりにサスペンド呼び出しがある
+
+- ブロッキング put → サスペンディング send
+- テイクをブロック → 受信を中断 
+- ミュータブルなステートは共有されない！ 
+- チャンネルはまだ実験的なもの
+
+```kotlin
+public interface Channel<E> : SendChannel<in E>, ReceiveChannel<out E> { 
+  suspend fun send(element: E)
+  suspend fun recieve(): E
+  ...
+}
+```
+- trySendと同じように、待機しないものもある
+
+- 逐次プロセスの通信は、非同期プログラミングのもうひとつの側面である
+- これは、メッセージの送受信を可能にするチャネルを通して、異なる並行プロセスの作業をオーケストレーションするものである
+- チャネルは、共有された変更可能な状態なしに、さまざまな場所で送受信されるメッセージのキューと考えることができる
+- チャネルのいくつかの機能はまだ実験的ですが、大部分は安定しており、kotlinx.coroutinesに残る
+- 基本インターフェースはSendChannelとReceiveChannelで、これらの機能はChannelインターフェースに統合されている
+
+## Practice
+```kotlin
+fun main() = runBlocking {
+    val channel = Channel<Int>()
+    launch {
+        for (x in 1..5) channel.send(x * x)
+    }
+    
+    repeat(5) {
+        println(channel.receive())
+    }
+    
+    println("Done!")
+}
+```
+- この例では、整数のチャンネルが作られる
+- そして、整数をこのチャンネルに送るコルーチンが起動される
+- メインの実行スレッドはこれらの整数を受信してプリントする
+- 最終的には、同期メカニズムを使わずに、すべての整数が印刷される
+- flow に繋げていきたい意図を感じる
+
+## Prime Numbers
+```kotlin
+fun CoroutineScope.numbersFrom(start: Int) = produce<Int> {
+    var x = start
+    while (true) send(x++) // infinite stream of integers from start
+}
+
+fun CoroutineScope.filter(numbers: ReceiveChannel<Int>, prime: Int) = produce<Int> { for (x in numbers) if (x % prime != 0) send(x) }
+
+fun main() = runBlocking {
+    var cur = numbersFrom(2)
+    repeat(10) {
+        println(cur.receive())
+        cur = filter(cur, prime)
+    }
+    
+    coroutineContext.cancelChildren()
+}
+```
+- これはより洗練された例で、produceコルーチンビルダーによって2つのReceiveChannelが生成される
+- 最初のReceiveChannelは整数の無限列を生成し、2番目のReceiveChannelは最初のReceiveChannelから整数を受け取り、与えられた整数で割り切れるものをフィルタリングして取り除く
+- そしてメイン関数では、2番目のチャネルから整数を受信する
+- しかし、そのたびに2番目の関数で、前のチャネルと最後に受信した整数を用いて新しいチャネルが作られる
+- 結局、これがチャンネルを使ったエラトステネスのふるいの短い実装
+  - へええ
+
+## Fan-in and fan-out
+```kotlin
+fun <T> CoroutineScope.production(ch: SendChannel<T>, msg: T) = launch { while (true) { delay(Random.nextLong(23)); ch.send(msg) } }
+
+fun <T> CoroutineScope.processing(ch: ReceiveChannel<T>, name: String) = launch { for (msg in ch) { println("$name: received $msg") } }
+
+fun main() = runBlocking {
+    val channel = Channel<String>()
+    listOf("foo", "bar", "baz").forEach { production(channel, it) }
+    
+    repeat(8) { processing(channel, "worker #$it") }
+    
+    delay(700) 
+    
+    coroutineContext.cancelChildren(CancellationException("Enough!"))
+}
+```
+- この例では、まず1つの通信チャネルが作られる
+- そして、3つのプロデューサーが存在し、それぞれがランダムな時間間隔の後にチャンネルにメッセージを送信する
+- そして、これらのメッセージを受信してコンソールに表示する8人のワーカーがいる
+- この例でも同期メカニズムは使われていない
+- 3人のライターと8人のリーダーがいますが、データ競合はない
+- 最後に、アプリケーションを停止するために、プロデューサーとリーダーを含め、現在のコンテキストのすべての子コンテキストがキャンセルされる
+
+## Details
+- チャンネルはまだ実験的なもの --> 実用化はまだされてないけど今後来る可能性はあるんやな
+- チャンネルは公平であり、送信と受信のコールは先入れ先出しの順序で処理される
+- デフォルトでは、チャンネルはRENDEZVOUSの容量を持つ
+- この動作は調整することができる： 
+  - ユーザはバッファの容量、バッファがオーバーフローしたときの処理、未配信アイテムの処理を指定することができる
+
+## Select (experimental!)
+```kotlin
+suspend fun selector(
+    channel1: ReceiveChannel<String>, 
+    channel2: ReceiveChannel<String>
+    ): String = select<String> {
+        // onReceive clause in select fails when the channel is closed
+        channel1.onReceive { it: String -> "b -> '$it'" }
+        channel2.onReceiveCatching { it: ChannelResult<String> -> 
+            val value = it.getOrNull()
+            if (value != null) { 
+                "a -> '$value'"
+            } else {
+                "Channel 'a' is closed" // Select does not stop!
+            }
+        }
+}
+```
+- チャンネルはまた、興味深い実験的なselect式もサポートしている
+
+
+## Miscellaneous (Beyond asynchronous programming)
+- その他（非同期プログラミングを超えて） 
+
+## Sequences
+```kotlin
+val fibonacci = sequence { // A coroutine builder!
+    var cur = 1 
+    var next = 1 
+    while (true) {
+        yield(cur) // A suspending call! 
+        cur += next
+        next = cur - next
+    }
+}
+
+val iter = fibonacci.iterator() // nothing happens yet
+println(iter.next()) // process up to the first yield -> 1 
+println(iter.next()) // wake up and continue -> 1 
+println(iter.next()) // 2 and then to infinity and beyond
+```
+- コルーチンはシーケンスの基礎でもある
+- シーケンスとは、ジョブを内包した小さなスコープであり、必要なときに必要な値だけを計算することができる
+- ある意味、各値の計算と取得が終わると、シーケンスは再び呼び出されるまで中断される
+
+## Miscellaneous (Under the hood: advanced)
+
+## Under the hood
+- このコード覚えてる？
+```kotlin
+suspend fun postItem(item: Item) {
+    val token = preparePost()
+    val post = submitPost(token, item) 
+    processPost(post)
+}
+```
+- さて、だいぶわかってきたので、ボンネットの下で何が起こっているのか、よりおおよその見当をつけてみよう
+
+```kotlin
+fun postItem(item: Item, completion: Continuation<Any?>) {
+
+class PostItemStateMachine( 
+    completion: Continuation<Any?>?, 
+    context: CoroutineContext?
+    ): ContinuationImpl(completion) {
+        
+        var result: Result<Any?> = Result(null)
+        var label: Int = 0
+
+        var token: Token? = null
+        var post: Post? = null
+        ...
+    }
+}
+```
+- サスペンド関数は、Continuation<T>型の引数を加えた関数にコンパイルされる
+- その関数の内部で、この関数のステートマシンのクラスが宣言される
+- このクラスは、中間値のような、通常関数のスタック上にあるものを格納する
+- さらに、このクラスは、この関数で計算された最後の結果のためのラベルと特別なフィールドを持っている
+- これは、正しい結果を格納するためと、ある時点で例外が発生したかどうかを追跡するために必要
+- ？？？
+
+```kotlin
+fun postItem(item: Item, completion: Continuation<Any?>) {
+
+    class PostItemStateMachine(...): ... {
+        ...
+        override fun invokeSuspend(result: Result<Any?>) {
+            this.result = result
+            postItem(item, this)
+        }
+    }
+
+    val continuation = completion as? PostItemStateMachine ?: PostItemStateMachine(completion)
+    ...
+}
+```
+- この関数が最初に呼ばれたとき、その関数の下にあるすべてのコードが継続として渡される
+- その下のコードは、関数のステートマシンではないので、最初の実行時に、そのステートマシンの新しいインスタンスにラップされ、元の継続は、ステートマシンに渡され、ステートマシンは、それ自身の内部ですべての作業を行い、元の継続に必要な結果を得た後、それを呼び出す
+- このインスタンスが作成されると、ラベルが切り替わるたびに、関数（ステートマシン）はこの新しいインスタンスを使って自分自身を呼び出し、キャストを渡す
+- あ？？？わかんねえよ。。
+
+```kotlin
+...
+when(continuation.label) {
+    0 -> { ... }
+    1 -> {
+        continuation.token = continuation.result.getOrThrow() as Token
+        continuation.label = 2
+        submitPost(continuation.token!!, continuation.item!!, continuation)
+    }
+    2 -> { ... }
+    3 -> {
+        continuation.finalResult = continuation.result.getOrThrow() as FinalResult
+        continuation.completion.resume(continuation.finalResult!!)
+    }
+    else -> throw IllegalStateException(...)
+}
+...
+```
+- そしてwhenの部分に到達し、そこで現在のラベルをチェックし、現在のラベルに対応するコードを実行し、新しい状態に遷移する
+- 最後のラベルでは、関数に渡された元の継続を呼び出す
+- これより下は、遷移後、ワーカーが利用可能になったときに呼び出されるように、コンテキストに存在するディスパッチャにステートマシンが渡される
+- そこでは、コルーチンが外部からの何かによってキャンセルされていないかどうかもチェックされる
+
+## More (Continuation as generic callback)
+- その他（汎用コールバックとしての継続）
+
+## Continuation
+
+```kotlin
+/// Here’s a refresher on what Continuation looks like:
+public interface Continuation<in T> {
+  public val context: CoroutineContext
+  public fun resumeWith(result: Result<T>)
+}
+
+/// We are given:
+suspend fun suspendAnswer() = 42
+suspend fun suspendSqr(x: Int) = x * x
+
+How can we run suspendSqr(suspendAnswer) without kotlinx.coroutines?
+```
+- サスペンディング関数は、継続が渡されることを期待してコンパイルされることが分かっている
+- kotlinx.coroutinesはスコープを作成し、その中でサスペンディング関数を呼び出す方法をいくつか提供してくれる
+- しかし、kotlinx.coroutinesを使わずにサスペンディング関数を呼び出したい場合はどうすればいいか？
+- その場合、コンパイルした関数にContinuationの実装を渡す必要がある
+
+- 継続は一般的なコールバックなので、継続パスのスタイルに戻ることができる
+```kotlin
+fun main() {
+    ::suspendAnswer.startCoroutine(object : Continuation<Int> {
+        override val context: CoroutineContext
+            get() = CoroutineName("Empty Context Simulation")
+
+        override fun resumeWith(result: Result<Int>) {
+            val prevResult = result.getOrThrow()
+            ::suspendSqr.startCoroutine(
+                prevResult,
+                Continuation(CoroutineName("Only name Context")) {
+                        it: Result<Int> -> println(it.getOrNull())
+                }
+            )
+        } // Oh no!
+    }) // Closing brackets are coming!
+} // Please help! I am being dragged into Callback Hell!!!
+```
+- 各サスペンディング関数はその名前空間に startCoroutine メソッドを持っており、このメソッドを使用することで、スコープなしでサスペンディング関数の外から呼び出すことができる
+- この例では、kotlinx.coroutinesを使わずにサスペンディング関数を呼び出す2つの方法を説明する
+- 最初の呼び出しでは、Continuationのインプレース実装が関数に提供される
+- 2番目の呼び出しでは、Continuation(...)標準ライブラリ関数を使用して、インターフェースの匿名実装をインスタンス化する
+- 第3の（そして明白な）方法は、Continuationのための本格的なクラスを書き、必要なときにそれを使用すること
+
+## Miscellaneous (To wrap existing async code or to implement your own?)
+- その他（既存の非同期コードをラップするか、独自のコードを実装するか？）
+
+## To wrap existing async code or to implement your own?
+```kotlin
+suspend fun AsynchronousFileChannel.aRead(b: ByteBuffer, p: Int = 0) =
+// Scheme: call-with-current-continuation; call/cc 
+    suspendCoroutine { cont ->
+// CompletionHandler ~ Continuation
+        read(b, p.toLong(), Unit, object : CompletionHandler<Int, Unit> {
+            override fun completed(bytesRead: Int, attachment: Unit) {
+                cont.resume(bytesRead)
+            }
+
+            override fun failed(exception: Throwable, attachment: Unit) {
+                cont.resumeWithException(exception)
+            }
+        })
+    }
+```
+- 標準ライブラリには特別な高階関数が用意されており、ブロッキングや別のライブラリから既に存在する非同期コードをKotlinのコルーチンに切り替えることができる
+- 必要なのは、関数を呼び出し、その結果をコルーチンに現れる継続に渡す方法を書くことだけ
+
+```kotlin
+fun main() = runBlocking {
+    val readJob = launch(Dispatchers.IO) {
+        val fileName = ...
+        val channel = AsynchronousFileChannel.open(Paths.get(fileName))
+        val buf = ByteBuffer.allocate(...)
+        channel.use { // syntactic sugar for `try { ... } finally { channel.close() }`
+            while (isActive) {
+                ... = it.aRead(buf)
+                ...
+            }
+        }
+    }
+    ...
+}
+```
+- このコードがコルーチンでどのように使われるようになったかを紹介しよう
+
+```kotlin
+suspend fun cancellable(…) =
+    suspendCancellableCoroutine { cancellableCont ->
+        cancellableCont.invokeOnCancellation { throwable: Throwable? ->
+// release resources, etc. 
+            ...
+        }
+
+        ...
+
+        cancellableCont.cancel(…)
+    }
+```
+- 中断した作業をキャンセルしたい場合のために、suspendCancellableCoroutineもある
+
+## Miscellaneous (async/await)
+
+## async / await in Kotlin
+```kotlin
+async Task PostItem(Item item) {
+  Task<Token> tokenTask = PreparePost();
+  Post post = await SubmitPost(tokenTask.await(), item);
+  ProcessPost();
+}
+```
+- async, await は C# のキーワード
+- Awaiting は思い OS スレッドをブロックしない
+- await は明確な中断点
+- await は1つの機能だが、環境によっては2つの異なる行動になる
+- C#のアプローチは、Dart、TS、JS、Python、Rust、C++...と同様、Kotlinチームがコルーチンを設計する際に大きなインスピレーションとなっ
+
+- Kotlinのコルーチンに最も強いインスピレーションを与えた非同期プログラミングの最後のアプローチは、C#で導入されたasync/await
+- これはC#で導入されたもので、実行中に中断できる関数をマークする特別な修飾子が追加される
+- プロミスと同様、戻り値の型は単なるTではなく、Task<T>に変更される
+
+```kotlin
+fun CoroutineScope.preparePostAsync(): Deferred<Token> = async<Token> { ... }
+
+suspend fun postItem(item: Item) {
+    coroutineScope {
+        val token = preparePost().await()
+        val post = submitPost(token, item).await()
+        processPost(post)
+    }
+}
+```
+- Deferred<T> : ジョブは結果を得るためのジョブです。Kotlinでも全く同じことが書ける！
+- しかし、なぜそうするのか？これはKotlinのイディオムではない
+- Kotlinでは、asyncは単なるコルーチンビルダーの1つに過ぎない
+- 唯一の違いは、awaitメソッドを持つDeferred<T>というJobの別の実装を提供していること
+- 通常のジョブでは、バックグラウンドで何かを行っていることがわかり、joinを呼び出すことで終了を待つことができる
+- Deferred<T>を使えば、結果の型であるTを知ることができ、awaitを呼び出すことで結果を求めたり、結果が表示されるまで中断することも可能
+
+```kotlin
+suspend fun postItemAsyncAwait(item: Item) {
+    coroutineScope {
+        val deferredToken = async { preparePost() }
+// some work
+        val token = deferredToken.await()
+        val deferredPost = async { submitPost(token, item) }
+// more work
+        val post = deferredPost.await()
+        processPost(post)
+    }
+}
+```
+- これはasync/awaitを使ったコードの例
+  - やっとわかるところ出てきたわ
+
+## Miscellaneous (Coroutine builders)
+
+## A zoo of them
+```kotlin
+public fun CoroutineScope.launch(
+    context: CoroutineContext,
+    start: CoroutineStart,
+    block: suspend CoroutineScope.() -> Unit // suspend lambda
+): Job
+
+public fun <T> future(...): CompletableFuture<T> // jdk8/experimental
+public fun <T> CoroutineScope.async(...): Deferred<T>
+public fun <T> runBlocking(...): T // Avoid using it
+public fun <E> CoroutineScope.produce(
+    context: CoroutineContext,
+    capacity: Int,
+    @BuilderInference block: suspend ProducerScope<E>.() -> Unit
+): ReceiveChannel<E>
+```
+- launchは最も一般的なもので、すでに何度も見てきた
+- futureは、Javaからの移行を容易にするために設計されたコルーチンビルダー
+- runBlockingは、ルート（親）コルーチンを作成し、その中のすべてのコードが終了するまで待ってから停止するという意味で、コルーチンビルダーである
+- produceはChannelで動作するコルーチンを作成する
+
+## Actor
+```kotlin
+/// Actor ∼ coroutine + channel
+
+// Message types for counterActor – Command pattern
+sealed class CounterMsg
+// one-way message to increment
+object IncCounter : CounterMsg() counter
+// a request with a reply
+class GetCounter(val response: CompletableDeferred<Int>) : CounterMsg()
+```
+- アクターは、アクター・モデルで動作する興味深いコルーチンビルダー
+- アクターはバックグラウンドで何らかの作業を行っているエンティティを表し、他のアクターと通信するためにメッセージを送受信することができる
+- 通常、メッセージはコマンド・パターン・クラスで表現される
+
+```kotlin
+// This function launches a new counter actor
+fun CoroutineScope.counterActor() = actor<CounterMsg> {
+    var counter = 0 // actor state
+    for (msg in channel) { // iterate over incoming messages
+      when (msg) {
+        is IncCounter -> counter++
+        is GetCounter -> msg.response.complete(counter)
+      }
+    }
+  }
+```
+- しばしば別のクラスにカプセル化される
+- ここでは、チャネルでメッセージを受信して処理する準備ができたアクタを見ることができる
+- アクターはコルーチンビルダーであり、アクターモデルのアイデアで遊ぶことができますが、通常アクターはチャネルとジョブをカプセル化した別のクラスとして書かれる
+
+## Miscellaneous (Android)
+
+```kotlin
+class MyViewModel: ViewModel() {
+    init {
+        viewModelScope.launch { ... }
+    }
+}
+```
+- developer.android.comをチェックして、最新のAndroid開発でコルーチンがどのように（広範囲に）使われているかを学んでほしい
+- ViewModelScopeは、アプリ内の各ViewModelに対して定義される
+- LifecycleScopeは、各Lifecycleオブジェクトに対して定義される
+- この講義では取り上げないが、Androidではフローが一般的である
+
+## Further Reading
+- ![img_32.png](img_32.png)
