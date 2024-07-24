@@ -3,6 +3,11 @@
 - 応用情報該当箇所、アルゴリズムとプログラミングの初っ端
   - 連結リストにおける単方向リストと循環リストの違いを出力させるのが今回の問題の目的
 
+
+# うさぎと亀アルゴリズム動画解説こちら
+- [LeetCode #141: Linked List Cycle | Floyd's Tortoise and Hare Algorithm](https://www.youtube.com/watch?v=RRSItF-Ts4Q&t=180s)
+
+
 # Python
 ```python
 class Solution(object):

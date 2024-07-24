@@ -16,6 +16,3 @@ class Solution(object):
                 return True
 
         return False
-
-# うさぎと亀アルゴリズム動画解説こちら
-# https://www.youtube.com/watch?v=RRSItF-Ts4Q&t=180s
