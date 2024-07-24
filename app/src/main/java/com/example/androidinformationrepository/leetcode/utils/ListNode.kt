@@ -1,6 +1,6 @@
 package utils
 
-class ListNode constructor(var value: Int = -1, var next: ListNode? = null) {
+class ListNode (var value: Int = -1, var next: ListNode? = null) {
     override fun toString(): String {
         return "$value -> ${next.toString()}"
     }
@@ -10,6 +10,7 @@ class ListNode constructor(var value: Int = -1, var next: ListNode? = null) {
         fun quickList(nodes: List<Int>): ListNode {
             val dummy = ListNode()
             nodes.reversed().forEach({
+                println(it.toString())
                 val temp = ListNode(it)
                 temp.next = dummy.next
                 dummy.next = temp
