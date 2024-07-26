@@ -44,5 +44,3 @@ fun hasCycle(head: ListNode?): Boolean {
     return false
 }
 ```
-- ちょっと思うところがあるのは while の条件式の中でやっている null チェックの部分なんだよな
-- このリンクリストについて、要素が null だった場合の扱いが書いてないから混乱する。。。
