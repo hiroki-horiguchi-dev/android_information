@@ -25,42 +25,38 @@ class Solution {
         /// l1,l2の両方 null の場合を弾く
         while (l1 != null || l2 != null) {
             int n = 0;
-
-            /// 
             if (l1 != null && l2 != null) {
                 /// 繰り上げも含めて足した時のあまり
                 n = (l1.val + l2.val + carry) % 10;
                 /// 足した時に10 で割った時の商
                 carry = (l1.val + l2.val + carry) / 10;
                 /// それぞれノードを進める
-                l1.next;
-                l2.next;
+                l1 = l1.next;
+                l2 = l2.next;
             } else if (l1 != null) {
                 n = (l1.val + carry) % 10;
                 carry = (l1.val + carry) / 10;
-                l1.next; 
+                l1 = l1.next; 
             } else if (l2 != null) {
                 n = (l2.val + carry) % 10;
                 carry = (l2.val + carry) / 10;
-                l2.next; 
+                l2 = l2.next;
             } else {
                 /// throw Exception()
             }
-
             ans.val = n;
             
             if (l1 != null || l2 != null) {
                 ans.next = new ListNode(0);
-                asn = asn.next;
+                ans = ans.next;
             }
         }
-
         if(carry == 1) {
             ans.next = new ListNode(carry);
         }
-        return root;
 
+        /// ans に対して操作を施すけど、最後に返却するのは root なんだ
+        return root;
     }
 }
 // @lc code=end
-
