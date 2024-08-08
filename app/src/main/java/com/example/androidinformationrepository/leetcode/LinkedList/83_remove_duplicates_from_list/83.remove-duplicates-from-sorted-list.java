@@ -53,6 +53,33 @@ class Solution {
         return head;
     }
 
+    /// 復習と別解 (Accepted)
+    /// 重複があった場合、ポインタを付け直した後に、ノードの進行も必要なのでは？
+    public ListNode deleteDuplicates(ListNode head) {
+
+        if (head == null || head.next == null) return null;
+
+        ListNode prs = head;
+
+        while (prs != null && prs.next != null) {
+            if (prs.val == prs.next.val) {
+                if (prs.next.next != null) {
+                    /// ポインタ付け替え
+                    prs.next = prs.next.next;
+                    /// 付け直したノードまで進行
+                    prs = prs.next.next;
+                } else if (prs.next.next == null) {
+                    prs.next = null;
+                }
+            } else {
+                /// ノードを次に進行
+                prs = prs.next;
+            }
+        }
+
+        return head;
+    }
+
 }
 // @lc code=end
 
